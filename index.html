@@ -1,0 +1,1934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Birth Tarot Widget — Willow Whispers</title>
+
+    <!-- Google Fonts — Cormorant Garamond (display) + Raleway (body) per WW brand -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Raleway:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+    <!-- Alpine.js — remove if already loaded on willow-whispers.com -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+
+    <style>
+        /* =============================================================
+           WILLOW WHISPERS — BIRTH TAROT WIDGET
+           Scoped under .ww-tarot-hero to avoid embed conflicts.
+           ============================================================= */
+
+        /* --- Custom Properties (Willow Whispers brand palette) ---- */
+        .ww-tarot-hero {
+            --ww-primary:      #2D5016;   /* Forest Green */
+            --ww-primary-soft: #4A7A2C;   /* Brighter Forest — for hover / lighter accents */
+            --ww-sage:         #7A9E5E;   /* Sage Green */
+            --ww-mint:         #B8D4A8;   /* Mint Green */
+            --ww-rose:         #C8A0A0;   /* Dusty Rose */
+            --ww-mauve:        #E8D0D0;   /* Mauve Blush */
+            --ww-gold:         #C4A35A;   /* Gold Accent */
+            --ww-gold-light:   #EDD99A;   /* Light Gold */
+            --ww-cream:        #F9F5ED;   /* Warm Cream — page surface */
+            --ww-cream-soft:   #FDFAF6;   /* Soft White — cards / panels */
+            --ww-cream-deep:   #F2EBDB;   /* Subtle elevated surface */
+            --ww-charcoal:     #2C2C2C;   /* Body text */
+            --ww-grey:         #7A7068;   /* Warm Grey */
+            --ww-text:         var(--ww-charcoal);
+            --ww-text-muted:   var(--ww-grey);
+            /* Card geometry — scales with viewport so step 2 always fits.
+               When the cards fan out, the total horizontal extent is
+               ~2.95 × card_w (translation + card width + rotation lean).
+               So we cap card_w by both the natural aspect-ratio width
+               AND the horizontal room available in the viewport.
+               Sizes bumped substantially so the illustration is the hero
+               of the reveal moment rather than the surrounding copy. */
+            --ww-card-h-base:  clamp(240px, 44vh, 380px);
+            --ww-card-w:       min(
+                                  calc(var(--ww-card-h-base) * 0.585),
+                                  calc((100vw - 48px) / 3)
+                               );
+            --ww-card-h:       calc(var(--ww-card-w) / 0.585);
+            /* Tunable fan spread (lower = tighter fan, used on narrow screens) */
+            --ww-fan-x:        0.75;   /* select / flip / revealed */
+            --ww-fan-x-fan:    0.8;    /* the brief 'fan' beat */
+            --ww-fan-rot:      8deg;   /* revealed rotation */
+            --ww-fan-rot-mid:  10deg;  /* select / flip rotation */
+            --ww-fan-rot-fan:  12deg;  /* fan rotation */
+            --ww-font-display: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+            --ww-font-body:    'Raleway', 'Lato', 'Gill Sans MT', 'Gill Sans', Calibri, sans-serif;
+        }
+
+        /* --- Reset & Base --------------------------------------- */
+        .ww-tarot-hero *, .ww-tarot-hero *::before, .ww-tarot-hero *::after {
+            box-sizing: border-box; margin: 0; padding: 0;
+        }
+        /* Standalone demo only: clear default body margin so the 100vh
+           hero exactly matches the viewport (no extra scrollbar).
+           Safe to remove when embedded inside willow-whispers.com — the
+           host page's body styles will simply override these. */
+        html, body { margin: 0; padding: 0; }
+
+        /* Hide Alpine-controlled elements until x-show resolves so the
+           place-autocomplete dropdown doesn't flash before init. */
+        [x-cloak] { display: none !important; }
+
+        .ww-tarot-hero {
+            position: relative;
+            width: 100%;
+            /* min-height (not fixed height) so the section centres the
+               compact input step inside the viewport but grows tall
+               enough to host the post-reveal natal form without
+               clipping. overflow-x prevents the fanned cards from
+               leaking a horizontal scrollbar on very narrow screens. */
+            min-height: 100vh;
+            min-height: 100dvh;
+            display: flex; align-items: center; justify-content: center;
+            background:
+                radial-gradient(ellipse at 20% 0%, rgba(232, 208, 208, 0.55) 0%, transparent 55%),
+                radial-gradient(ellipse at 80% 100%, rgba(184, 212, 168, 0.45) 0%, transparent 55%),
+                linear-gradient(180deg, var(--ww-cream) 0%, var(--ww-cream-soft) 100%);
+            overflow-x: clip;
+            font-family: var(--ww-font-body);
+            color: var(--ww-text);
+            padding: clamp(12px, 2.2vh, 24px) 16px;
+        }
+
+        /* Botanical glow — sacred but airy, in brand mauve + gold */
+        .ww-tarot-hero::before {
+            content: '';
+            position: absolute; top: 8%; left: 50%;
+            transform: translateX(-50%);
+            width: 90%; height: 60%;
+            background: radial-gradient(ellipse, rgba(196, 163, 90, 0.10) 0%, transparent 65%);
+            pointer-events: none; z-index: 0;
+        }
+        .ww-tarot-hero::after {
+            content: '';
+            position: absolute; bottom: 4%; left: 50%;
+            transform: translateX(-50%);
+            width: 70%; height: 35%;
+            background: radial-gradient(ellipse, rgba(122, 158, 94, 0.10) 0%, transparent 70%);
+            pointer-events: none; z-index: 0;
+        }
+
+        /* --- Floating motes (soft gold particles, on-brand for cream BG) - */
+        .ww-stars { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+        .ww-star {
+            position: absolute; border-radius: 50%;
+            background: var(--ww-gold);
+            animation: wwTwinkle var(--d, 3s) ease-in-out infinite;
+            animation-delay: var(--delay, 0s);
+        }
+        .ww-star--sm { width: 2px; height: 2px; opacity: 0.18; }
+        .ww-star--md { width: 3px; height: 3px; opacity: 0.28; }
+        .ww-star--lg { width: 4px; height: 4px; opacity: 0.38; box-shadow: 0 0 8px 2px rgba(196, 163, 90, 0.18); }
+        @keyframes wwTwinkle {
+            0%, 100% { opacity: var(--o-min, 0.1); transform: scale(1); }
+            50%       { opacity: var(--o-max, 0.45); transform: scale(1.25); }
+        }
+
+        /* --- Content wrapper ------------------------------------ */
+        .ww-content {
+            position: relative; z-index: 1;
+            width: 100%; max-width: 780px;
+            display: flex; flex-direction: column; align-items: center;
+            text-align: center;
+        }
+
+        /* --- Eyebrow chip (replaces logo/wordmark for embed) ------ */
+        .ww-eyebrow {
+            display: inline-flex; align-items: center; gap: 8px;
+            font-family: var(--ww-font-body);
+            font-size: clamp(0.62rem, 1.4vh, 0.74rem); font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.28em;
+            color: var(--ww-gold);
+            background: rgba(196, 163, 90, 0.10);
+            border: 1px solid rgba(196, 163, 90, 0.35);
+            padding: 6px 16px; border-radius: 999px;
+            margin-bottom: clamp(12px, 2.4vh, 22px);
+        }
+        .ww-eyebrow::before,
+        .ww-eyebrow::after {
+            content: '✦'; color: var(--ww-gold); opacity: 0.65; font-size: 0.7em;
+        }
+
+        /* --- Step container ------------------------------------- */
+        .ww-step-container {
+            display: grid; align-items: start; justify-items: center;
+            width: 100%;
+        }
+        .ww-step-container > .ww-step { grid-area: 1 / 1; width: 100%; }
+
+        /* --- Input step ---------------------------------------- */
+        .ww-headline {
+            font-family: var(--ww-font-display);
+            font-size: clamp(1.8rem, 4.6vw, 3rem);
+            font-weight: 700; line-height: 1.12;
+            margin-bottom: clamp(10px, 1.6vh, 16px);
+            color: var(--ww-primary);
+            letter-spacing: -0.005em;
+        }
+        .ww-headline em {
+            font-style: italic;
+            color: var(--ww-rose);
+            font-weight: 600;
+        }
+        .ww-subheadline {
+            font-family: var(--ww-font-body);
+            font-size: clamp(0.96rem, 1.9vw, 1.1rem); font-weight: 400; line-height: 1.6;
+            color: var(--ww-grey); max-width: 520px;
+            margin: 0 auto clamp(18px, 3.4vh, 30px);
+        }
+
+        .ww-form-row {
+            display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;
+            margin-bottom: clamp(16px, 2.8vh, 24px);
+        }
+
+        .ww-select-wrap { position: relative; }
+        .ww-select-wrap svg {
+            position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+            width: 14px; height: 14px; color: var(--ww-primary);
+            pointer-events: none; opacity: 0.7;
+        }
+
+        .ww-select {
+            appearance: none; -webkit-appearance: none;
+            background: var(--ww-cream-soft);
+            border: 1.5px solid rgba(122, 158, 94, 0.35);
+            border-radius: 10px; color: var(--ww-charcoal);
+            padding: 13px 44px 13px 20px;
+            font-family: var(--ww-font-body); font-size: 1rem; font-weight: 500;
+            cursor: pointer;
+            transition: border-color 0.25s, background 0.25s, box-shadow 0.25s;
+            min-width: 160px;
+            box-shadow: 0 2px 8px rgba(45, 80, 22, 0.04);
+        }
+        .ww-select:hover, .ww-select:focus {
+            border-color: var(--ww-sage);
+            background: #fff;
+            outline: none;
+            box-shadow: 0 4px 14px rgba(45, 80, 22, 0.08);
+        }
+        .ww-select option { background: #fff; color: var(--ww-charcoal); }
+
+        .ww-reveal-btn {
+            display: inline-flex; align-items: center; gap: 10px;
+            background: linear-gradient(135deg, var(--ww-primary) 0%, var(--ww-primary-soft) 100%);
+            color: var(--ww-cream);
+            padding: 15px 44px; border-radius: 50px; border: none;
+            font-family: var(--ww-font-display); font-size: 1.1rem; font-weight: 700;
+            letter-spacing: 0.02em; cursor: pointer;
+            transition: transform 0.25s ease, box-shadow 0.25s ease;
+            box-shadow: 0 6px 22px rgba(45, 80, 22, 0.28);
+            position: relative; overflow: hidden;
+        }
+        .ww-reveal-btn::after {
+            content: ''; position: absolute; inset: 0;
+            background: linear-gradient(120deg, transparent 0%, rgba(237, 217, 154, 0.35) 50%, transparent 100%);
+            transform: translateX(-100%);
+            animation: wwShimmer 3.4s ease infinite;
+        }
+        .ww-reveal-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 30px rgba(45, 80, 22, 0.34);
+        }
+        .ww-reveal-btn:active:not(:disabled) { transform: translateY(0); }
+        .ww-reveal-btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+        .ww-reveal-btn:disabled::after { animation: none; }
+
+        @keyframes wwShimmer {
+            0%   { transform: translateX(-100%); }
+            55%  { transform: translateX(100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        /* --- Trust badge row (below primary CTA) ----------------- */
+        .ww-trust-row {
+            display: flex; align-items: center; justify-content: center;
+            gap: clamp(10px, 2vw, 22px); flex-wrap: wrap;
+            margin-top: clamp(14px, 2.4vh, 22px);
+            font-family: var(--ww-font-body);
+            font-size: clamp(0.72rem, 1.4vw, 0.82rem); font-weight: 500;
+            color: var(--ww-grey); letter-spacing: 0.06em;
+        }
+        .ww-trust-item {
+            display: inline-flex; align-items: center; gap: 6px;
+        }
+        .ww-trust-item svg { width: 14px; height: 14px; color: var(--ww-sage); flex-shrink: 0; }
+        .ww-trust-sep {
+            width: 4px; height: 4px; border-radius: 50%;
+            background: var(--ww-gold); opacity: 0.55;
+        }
+
+        /* --- Card Stage ----------------------------------------- */
+        .ww-card-stage {
+            position: relative; width: 100%;
+            height: calc(var(--ww-card-h) + clamp(24px, 4vh, 48px));
+            display: flex; align-items: center; justify-content: center;
+            margin-bottom: clamp(8px, 1.4vh, 16px);
+        }
+
+        /* --- Individual tarot card ------------------------------ */
+        .ww-tarot-card {
+            position: absolute;
+            width: var(--ww-card-w); height: var(--ww-card-h);
+            border-radius: 12px; cursor: default;
+            transition: all 0.8s cubic-bezier(0.23, 1, 0.32, 1);
+            transform-origin: center bottom;
+        }
+        .ww-tarot-card--left   { z-index: 2; }
+        .ww-tarot-card--center { z-index: 1; }
+        .ww-tarot-card--right  { z-index: 2; }
+
+        /* --- Phase: stack (initial) ----------------------------- */
+        .ww-tarot-card--left.phase-stack,
+        .ww-tarot-card--center.phase-stack,
+        .ww-tarot-card--right.phase-stack { transform: scale(0.9); opacity: 0; }
+
+        /* --- Phase: appear -------------------------------------- */
+        .ww-tarot-card--left.phase-appear,
+        .ww-tarot-card--center.phase-appear,
+        .ww-tarot-card--right.phase-appear { opacity: 1; transform: scale(1) translateY(0); }
+
+        /* --- Phase: fan ----------------------------------------- */
+        .ww-tarot-card--left.phase-fan  { transform: translateX(calc(var(--ww-card-w) * var(--ww-fan-x-fan) * -1)) rotate(calc(var(--ww-fan-rot-fan) * -1)); opacity: 1; }
+        .ww-tarot-card--center.phase-fan { transform: translateY(-6px); opacity: 1; }
+        .ww-tarot-card--right.phase-fan { transform: translateX(calc(var(--ww-card-w) * var(--ww-fan-x-fan))) rotate(var(--ww-fan-rot-fan)); opacity: 1; }
+
+        /* --- Phase: select (slight pull-in anticipation) --------- */
+        .ww-tarot-card--left.phase-select  { transform: translateX(calc(var(--ww-card-w) * var(--ww-fan-x) * -1)) rotate(calc(var(--ww-fan-rot-mid) * -1)) translateY(-4px); opacity: 1; }
+        .ww-tarot-card--center.phase-select { transform: translateY(-10px); opacity: 1; }
+        .ww-tarot-card--right.phase-select { transform: translateX(calc(var(--ww-card-w) * var(--ww-fan-x))) rotate(var(--ww-fan-rot-mid)) translateY(-4px); opacity: 1; }
+
+        /* --- Phase: flip ---------------------------------------- */
+        .ww-tarot-card--left.phase-flip  { transform: translateX(calc(var(--ww-card-w) * var(--ww-fan-x) * -1)) rotate(calc(var(--ww-fan-rot-mid) * -1)) translateY(-4px); opacity: 1; }
+        .ww-tarot-card--center.phase-flip { transform: translateY(-10px); opacity: 1; }
+        .ww-tarot-card--right.phase-flip { transform: translateX(calc(var(--ww-card-w) * var(--ww-fan-x))) rotate(var(--ww-fan-rot-mid)) translateY(-4px); opacity: 1; }
+
+        /* --- Phase: revealed ------------------------------------ */
+        .ww-tarot-card--left.phase-revealed  { transform: translateX(calc(var(--ww-card-w) * var(--ww-fan-x) * -1)) rotate(calc(var(--ww-fan-rot) * -1)) translateY(-6px); opacity: 1; animation: wwCardGlow 3s ease-in-out infinite; }
+        .ww-tarot-card--center.phase-revealed { transform: translateY(-8px); opacity: 1; }
+        .ww-tarot-card--right.phase-revealed { transform: translateX(calc(var(--ww-card-w) * var(--ww-fan-x))) rotate(var(--ww-fan-rot)) translateY(-6px); opacity: 1; animation: wwCardGlow 3s ease-in-out infinite; }
+
+        @keyframes wwCardGlow {
+            0%, 100% { box-shadow: 0 0 36px rgba(122, 158, 94, 0.30), 0 0 22px rgba(196, 163, 90, 0.26), 0 16px 38px rgba(45, 80, 22, 0.22); }
+            50%       { box-shadow: 0 0 70px rgba(122, 158, 94, 0.46), 0 0 42px rgba(196, 163, 90, 0.38), 0 18px 46px rgba(45, 80, 22, 0.26); }
+        }
+
+        /* --- Card inner (3D flip) ------------------------------- */
+        .ww-card-inner {
+            position: relative; width: 100%; height: 100%;
+            transform-style: preserve-3d;
+            transition: transform 0.9s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .ww-card-inner.flipped { transform: rotateY(180deg); }
+
+        .ww-card-face {
+            position: absolute; inset: 0;
+            backface-visibility: hidden; -webkit-backface-visibility: hidden;
+            border-radius: 12px; overflow: hidden;
+        }
+
+        /* --- Card BACK ------------------------------------------ */
+        .ww-card-back {
+            background-image: url("tarot_card_images/back tarot card.png");
+            background-size: cover;
+            background-position: center;
+            border: 1.5px solid rgba(196, 163, 90, 0.55);
+            box-shadow: 0 8px 24px rgba(45, 80, 22, 0.25);
+        }
+
+        /* --- Card FRONT ----------------------------------------- */
+        .ww-card-front {
+            background: linear-gradient(170deg, var(--ww-cream-soft) 0%, var(--ww-cream-deep) 100%);
+            border: 1.5px solid rgba(196, 163, 90, 0.55);
+            transform: rotateY(180deg);
+            display: flex; align-items: center; justify-content: center;
+            padding: 0; text-align: center;
+            box-shadow: 0 10px 26px rgba(45, 80, 22, 0.18);
+        }
+        /* Tarot illustration fills the front face edge-to-edge. */
+        .ww-card-art {
+            width: 100%; height: 100%;
+            object-fit: cover; object-position: center;
+            display: block;
+            user-select: none; -webkit-user-drag: none;
+            pointer-events: none;
+        }
+
+        /* Decorative corners */
+        .ww-card-corner { position: absolute; width: 14px; height: 14px; border-color: var(--ww-gold); border-style: solid; opacity: 0.5; }
+        .ww-card-corner--tl { top: 10px; left: 10px; border-width: 1px 0 0 1px; }
+        .ww-card-corner--tr { top: 10px; right: 10px; border-width: 1px 1px 0 0; }
+        .ww-card-corner--bl { bottom: 10px; left: 10px; border-width: 0 0 1px 1px; }
+        .ww-card-corner--br { bottom: 10px; right: 10px; border-width: 0 1px 1px 0; }
+
+        /* Card role badge (Personality / Soul) */
+        .ww-card-role {
+            font-family: var(--ww-font-body);
+            font-size: 0.5rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.2em;
+            color: var(--ww-primary);
+            margin-bottom: 4px;
+            background: rgba(122, 158, 94, 0.14);
+            padding: 2px 8px; border-radius: 20px;
+            border: 1px solid rgba(122,158,94,0.32);
+        }
+        .ww-card-role--soul {
+            color: #8B5A5A;
+            background: rgba(200,160,160,0.18);
+            border-color: rgba(200,160,160,0.45);
+        }
+
+        .ww-card-numeral {
+            font-family: var(--ww-font-display); font-size: 0.9rem;
+            color: var(--ww-gold); letter-spacing: 0.2em; margin-bottom: 4px;
+        }
+        .ww-card-divider {
+            width: 55%; height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(196,163,90,0.55), transparent);
+            margin: 6px auto;
+        }
+        .ww-card-mandala { width: 60px; height: 60px; margin: 6px 0; color: var(--ww-primary); opacity: 0.55; }
+        .ww-card-title {
+            font-family: var(--ww-font-display); font-size: 0.95rem; font-weight: 700;
+            color: var(--ww-primary); margin-bottom: 4px;
+            letter-spacing: 0.03em; line-height: 1.2;
+        }
+        .ww-card-keywords {
+            font-family: var(--ww-font-body); font-size: 0.55rem; font-weight: 500;
+            color: var(--ww-grey); text-transform: uppercase; letter-spacing: 0.12em;
+        }
+
+        /* --- Sparkle burst -------------------------------------- */
+        .ww-sparkles { position: absolute; inset: -40px; pointer-events: none; z-index: 2; opacity: 0; transition: opacity 0.5s ease; }
+        .ww-sparkles.active { opacity: 1; }
+        .ww-sparkle { position: absolute; width: 4px; height: 4px; background: var(--ww-gold); border-radius: 50%; animation: wwSpark 1.8s ease-out forwards; animation-delay: var(--sd, 0s); }
+        @keyframes wwSpark {
+            0%   { opacity: 1; transform: translate(0,0) scale(1); }
+            100% { opacity: 0; transform: translate(var(--sx, 30px), var(--sy, -30px)) scale(0); }
+        }
+
+        /* --- Card labels (Personality / Soul) ------------------- */
+        .ww-card-stage-labels {
+            display: flex; justify-content: space-between;
+            width: calc(var(--ww-card-w) * 2.2);
+            max-width: 90%;
+            margin: 0 auto 8px;
+            opacity: 0; transform: translateY(8px);
+            transition: opacity 0.6s ease 0.5s, transform 0.6s ease 0.5s;
+        }
+        .ww-card-stage-labels.visible { opacity: 1; transform: translateY(0); }
+        .ww-card-stage-label {
+            font-family: var(--ww-font-body); font-size: 0.68rem; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.14em;
+            color: var(--ww-grey); text-align: center;
+        }
+        .ww-card-stage-label span {
+            display: inline-block;
+            padding: 4px 12px; border-radius: 20px;
+            background: var(--ww-cream-soft);
+            box-shadow: 0 2px 6px rgba(45, 80, 22, 0.08);
+        }
+        .ww-card-stage-label--personality span {
+            color: var(--ww-primary);
+            border: 1px solid rgba(122, 158, 94, 0.5);
+        }
+        .ww-card-stage-label--soul span {
+            color: #8B5A5A;
+            border: 1px solid rgba(200, 160, 160, 0.55);
+        }
+
+        /* --- Reading section ------------------------------------ */
+        .ww-reading {
+            margin-top: clamp(10px, 1.8vh, 20px);
+            opacity: 0; transform: translateY(16px);
+            transition: opacity 0.7s ease 0.2s, transform 0.7s ease 0.2s;
+        }
+        .ww-reading.visible { opacity: 1; transform: translateY(0); }
+
+        .ww-pair-cards {
+            display: flex; align-items: center; justify-content: center;
+            gap: clamp(8px, 1.2vw, 14px);
+            margin-bottom: clamp(8px, 1.4vh, 14px); flex-wrap: wrap;
+        }
+        .ww-pair-card-chip {
+            display: inline-flex; align-items: baseline; gap: 8px;
+            font-family: var(--ww-font-body); font-size: 0.8rem; font-weight: 600;
+            padding: 5px 14px; border-radius: 999px;
+            line-height: 1.2;
+        }
+        .ww-pair-card-role {
+            font-size: 0.58rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.22em;
+            opacity: 0.72;
+        }
+        .ww-pair-card-name {
+            font-family: var(--ww-font-display); font-style: italic;
+            font-size: 0.95rem; font-weight: 700; letter-spacing: 0.01em;
+        }
+        .ww-pair-card-chip--personality {
+            color: var(--ww-primary); background: rgba(122, 158, 94, 0.16);
+            border: 1px solid rgba(122, 158, 94, 0.45);
+        }
+        .ww-pair-card-chip--soul {
+            color: #8B5A5A; background: rgba(200, 160, 160, 0.16);
+            border: 1px solid rgba(200, 160, 160, 0.5);
+        }
+        .ww-pair-card-chip--destiny {
+            color: #9A7F36; background: rgba(196, 163, 90, 0.18);
+            border: 1px solid rgba(196, 163, 90, 0.55);
+        }
+        .ww-pair-chip-sep { color: var(--ww-gold); opacity: 0.7; font-size: 1rem; }
+
+        .ww-pair-title {
+            font-family: var(--ww-font-display); font-style: italic;
+            font-size: clamp(1.4rem, 3.2vw, 2rem); font-weight: 700;
+            color: var(--ww-primary); margin-bottom: clamp(6px, 1vh, 10px);
+            line-height: 1.15; letter-spacing: -0.005em;
+        }
+        .ww-pair-title::before,
+        .ww-pair-title::after {
+            content: '✦'; color: var(--ww-gold); opacity: 0.55;
+            font-size: 0.55em; vertical-align: middle;
+            margin: 0 0.55em; font-style: normal;
+        }
+        .ww-reading-text {
+            font-family: var(--ww-font-body); font-size: clamp(0.88rem, 1.7vw, 1rem);
+            font-weight: 400; line-height: 1.65;
+            color: var(--ww-charcoal); max-width: 620px; margin: 0 auto;
+        }
+
+        /* --- Individual card insights ---------------------------- */
+        .ww-insights {
+            display: grid; gap: clamp(12px, 1.6vw, 18px);
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            max-width: 760px;
+            margin: clamp(14px, 2vh, 22px) auto clamp(18px, 2.4vh, 28px);
+            text-align: left;
+        }
+        .ww-insights--triple {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            max-width: 980px;
+        }
+        .ww-insight {
+            position: relative;
+            background: var(--ww-cream-soft);
+            border: 1px solid rgba(196, 163, 90, 0.32);
+            border-radius: 14px;
+            padding: clamp(14px, 1.6vh, 20px) clamp(14px, 1.8vw, 22px);
+            box-shadow: 0 4px 14px rgba(45, 80, 22, 0.06);
+            display: flex; flex-direction: column;
+            gap: clamp(8px, 1vh, 12px);
+        }
+        .ww-insight::before {
+            content: ''; position: absolute;
+            top: 0; left: clamp(16px, 2vw, 22px); right: clamp(16px, 2vw, 22px);
+            height: 3px; border-radius: 0 0 4px 4px;
+            background: var(--ww-accent, var(--ww-gold));
+            opacity: 0.85;
+        }
+        .ww-insight--personality { --ww-accent: var(--ww-primary); }
+        .ww-insight--personality { border-color: rgba(122, 158, 94, 0.45); }
+        .ww-insight--soul        { --ww-accent: #B98484; border-color: rgba(200, 160, 160, 0.55); }
+        .ww-insight--destiny     { --ww-accent: var(--ww-gold); border-color: rgba(196, 163, 90, 0.55); }
+
+        .ww-insight-head {
+            display: flex; flex-direction: column;
+            gap: 2px; padding-bottom: clamp(6px, 0.8vh, 10px);
+            border-bottom: 1px solid rgba(196, 163, 90, 0.22);
+            position: relative;
+        }
+        .ww-insight-eyebrow {
+            font-family: var(--ww-font-body);
+            font-size: 0.62rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.24em;
+            color: var(--ww-accent, var(--ww-gold));
+            opacity: 0.85;
+        }
+        .ww-insight-name {
+            font-family: var(--ww-font-display); font-style: italic;
+            font-size: clamp(1.1rem, 1.9vw, 1.35rem);
+            font-weight: 700; color: var(--ww-primary);
+            line-height: 1.2;
+        }
+        .ww-insight--soul .ww-insight-name    { color: #8B5A5A; }
+        .ww-insight--destiny .ww-insight-name { color: #9A7F36; }
+        .ww-insight-numeral {
+            position: absolute; top: -2px; right: 0;
+            font-family: var(--ww-font-display);
+            font-size: 0.85rem; letter-spacing: 0.2em;
+            color: var(--ww-gold); opacity: 0.75;
+        }
+        .ww-insight-text {
+            font-family: var(--ww-font-body);
+            font-size: clamp(0.84rem, 1.5vw, 0.94rem);
+            line-height: 1.6; color: var(--ww-charcoal);
+            margin: 0;
+        }
+        .ww-insight-keywords {
+            font-family: var(--ww-font-body);
+            font-size: 0.66rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.18em;
+            color: var(--ww-grey); opacity: 0.8;
+            margin-top: auto;
+        }
+
+        /* --- Synergy / "Why this pairing is rare" ---------------- */
+        .ww-synergy {
+            max-width: 680px;
+            margin: 0 auto clamp(10px, 1.8vh, 18px);
+            padding: clamp(16px, 2.2vh, 26px) clamp(16px, 2.4vw, 28px);
+            background: linear-gradient(180deg, rgba(196, 163, 90, 0.08), rgba(122, 158, 94, 0.08));
+            border: 1px solid rgba(196, 163, 90, 0.35);
+            border-radius: 16px;
+            box-shadow: inset 0 0 0 1px rgba(253, 250, 246, 0.6);
+        }
+        .ww-synergy-eyebrow {
+            font-family: var(--ww-font-body);
+            font-size: 0.66rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.28em;
+            color: var(--ww-gold);
+            margin-bottom: clamp(8px, 1.2vh, 14px);
+        }
+        .ww-synergy .ww-reading-text {
+            font-size: clamp(0.9rem, 1.7vw, 1rem);
+            color: var(--ww-charcoal);
+        }
+
+        /* --- CTA section --------------------------------------- */
+        .ww-cta {
+            margin-top: clamp(6px, 1.2vh, 14px);
+            opacity: 0; transform: translateY(16px);
+            transition: opacity 0.7s ease 0.4s, transform 0.7s ease 0.4s;
+        }
+        .ww-cta.visible { opacity: 1; transform: translateY(0); }
+
+        .ww-cta-divider {
+            width: 60px; height: 1px;
+            background: linear-gradient(90deg, transparent, var(--ww-gold), transparent);
+            margin: 0 auto clamp(4px, 0.8vh, 10px); opacity: 0.65;
+        }
+
+        .ww-cta-eyebrow {
+            display: inline-block;
+            font-family: var(--ww-font-body);
+            font-size: 0.62rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.28em;
+            color: var(--ww-gold);
+            background: rgba(196, 163, 90, 0.10);
+            border: 1px solid rgba(196, 163, 90, 0.42);
+            padding: 4px 14px; border-radius: 999px;
+            margin-bottom: clamp(8px, 1.2vh, 14px);
+        }
+        .ww-cta-heading {
+            font-family: var(--ww-font-display); font-style: italic;
+            font-size: clamp(1.05rem, 2.3vw, 1.4rem); color: var(--ww-primary);
+            font-weight: 600; margin-bottom: 6px; line-height: 1.25;
+            max-width: 560px; margin-left: auto; margin-right: auto;
+        }
+        .ww-cta-heading-accent {
+            color: var(--ww-rose);
+            font-weight: 700;
+            font-style: italic;
+        }
+        .ww-cta-subtext {
+            font-size: clamp(0.82rem, 1.55vw, 0.94rem); font-weight: 400;
+            color: var(--ww-grey);
+            margin: 0 auto clamp(10px, 1.6vh, 16px);
+            max-width: 500px; line-height: 1.55;
+        }
+        .ww-cta-card-name {
+            color: var(--ww-primary); font-weight: 700;
+            white-space: nowrap;
+        }
+        .ww-cta-card-name--soul { color: #8B5A5A; }
+
+        .ww-cta-perks {
+            list-style: none; padding: 0;
+            margin: 0 auto clamp(12px, 1.8vh, 18px);
+            max-width: 460px;
+            display: flex; flex-direction: column; align-items: stretch;
+            gap: 6px;
+            text-align: left;
+        }
+        .ww-cta-perks li {
+            font-family: var(--ww-font-body);
+            font-size: clamp(0.78rem, 1.4vw, 0.88rem);
+            color: var(--ww-charcoal);
+            font-weight: 500;
+            display: flex; align-items: center; gap: 10px;
+            background: rgba(122, 158, 94, 0.07);
+            border: 1px solid rgba(122, 158, 94, 0.22);
+            border-radius: 10px;
+            padding: 8px 14px;
+        }
+        .ww-cta-perk-icon {
+            color: var(--ww-gold); font-size: 0.85rem; line-height: 1;
+            flex-shrink: 0;
+        }
+
+        .ww-email-form {
+            display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+            max-width: 480px; margin: 0 auto 8px;
+        }
+
+        .ww-email-input {
+            flex: 1; min-width: 220px;
+            background: var(--ww-cream-soft);
+            border: 1.5px solid rgba(122, 158, 94, 0.35);
+            border-radius: 10px; color: var(--ww-charcoal); padding: 11px 18px;
+            font-family: var(--ww-font-body); font-size: 0.94rem; font-weight: 500;
+            transition: border-color 0.25s, background 0.25s, box-shadow 0.25s;
+            box-shadow: 0 2px 8px rgba(45, 80, 22, 0.04);
+        }
+        .ww-email-input::placeholder { color: rgba(122, 112, 104, 0.5); font-weight: 400; }
+        .ww-email-input:focus {
+            outline: none;
+            border-color: var(--ww-sage);
+            background: #fff;
+            box-shadow: 0 4px 14px rgba(45, 80, 22, 0.10);
+        }
+
+        .ww-submit-btn {
+            background: linear-gradient(135deg, var(--ww-primary) 0%, var(--ww-primary-soft) 100%);
+            color: var(--ww-cream); padding: 11px 26px; border-radius: 10px; border: none;
+            font-family: var(--ww-font-body); font-size: 0.94rem; font-weight: 700;
+            letter-spacing: 0.02em;
+            cursor: pointer; transition: transform 0.25s ease, box-shadow 0.25s ease;
+            white-space: nowrap;
+            box-shadow: 0 4px 14px rgba(45, 80, 22, 0.25);
+        }
+        .ww-submit-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 22px rgba(45, 80, 22, 0.34);
+        }
+        .ww-submit-btn:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+
+        .ww-privacy { font-size: 0.74rem; color: var(--ww-grey); opacity: 0.85; }
+        .ww-privacy a { color: var(--ww-primary); text-decoration: underline; text-decoration-color: rgba(45, 80, 22, 0.3); text-underline-offset: 2px; }
+        .ww-privacy a:hover { text-decoration-color: var(--ww-primary); }
+
+        /* --- Success state ------------------------------------- */
+        .ww-success { text-align: center; }
+        .ww-success-icon {
+            font-size: 2rem; margin-bottom: 10px;
+            color: var(--ww-gold);
+            filter: drop-shadow(0 2px 8px rgba(196, 163, 90, 0.4));
+        }
+        .ww-success-heading {
+            font-family: var(--ww-font-display); font-style: italic;
+            font-size: 1.3rem; font-weight: 600;
+            color: var(--ww-primary); margin-bottom: 6px;
+        }
+        .ww-success-text { font-size: 0.92rem; color: var(--ww-grey); font-weight: 400; }
+
+        /* --- Draw again btn ------------------------------------ */
+        .ww-again-btn {
+            display: inline-block; margin-top: clamp(8px, 1.4vh, 16px);
+            padding: 7px 20px;
+            background: transparent;
+            border: 1px solid rgba(122, 158, 94, 0.35);
+            border-radius: 50px; color: var(--ww-grey);
+            font-family: var(--ww-font-body); font-size: 0.76rem; font-weight: 600;
+            letter-spacing: 0.08em; cursor: pointer; transition: all 0.25s ease;
+        }
+        .ww-again-btn:hover {
+            border-color: var(--ww-sage);
+            color: var(--ww-primary);
+            background: rgba(122, 158, 94, 0.08);
+        }
+
+        /* --- Natal chart panel (Phase 2 of the CTA) ------------- */
+        .ww-natal-panel {
+            background: var(--ww-cream-soft);
+            border: 1px solid rgba(196, 163, 90, 0.32);
+            border-radius: 14px;
+            padding: clamp(14px, 2.2vh, 22px) clamp(16px, 2.4vw, 24px);
+            margin: clamp(10px, 1.8vh, 18px) auto clamp(10px, 1.8vh, 16px);
+            max-width: 520px;
+            text-align: left;
+            box-shadow: 0 4px 18px rgba(45, 80, 22, 0.06);
+        }
+        .ww-natal-eyebrow {
+            font-family: var(--ww-font-body);
+            font-size: 0.66rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.22em;
+            color: var(--ww-gold);
+            text-align: center;
+            display: block;
+            margin-bottom: 4px;
+        }
+        .ww-natal-title {
+            font-family: var(--ww-font-display);
+            font-style: italic; font-weight: 600;
+            font-size: clamp(1rem, 1.9vw, 1.2rem);
+            color: var(--ww-primary);
+            text-align: center;
+            margin-bottom: 12px;
+            line-height: 1.3;
+        }
+        .ww-natal-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .ww-natal-row--single { grid-template-columns: 1fr; }
+        .ww-natal-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+        .ww-natal-label {
+            font-family: var(--ww-font-body);
+            font-size: 0.7rem; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.12em;
+            color: var(--ww-grey);
+        }
+        .ww-natal-label .ww-natal-optional {
+            font-weight: 400; text-transform: none; letter-spacing: 0.02em;
+            color: rgba(122, 112, 104, 0.7);
+            margin-left: 4px; font-size: 0.92em;
+        }
+        .ww-natal-select,
+        .ww-natal-input {
+            appearance: none; -webkit-appearance: none;
+            background: #fff;
+            border: 1.5px solid rgba(122, 158, 94, 0.32);
+            border-radius: 8px;
+            color: var(--ww-charcoal);
+            padding: 10px 14px;
+            font-family: var(--ww-font-body);
+            font-size: 0.94rem; font-weight: 500;
+            width: 100%;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            box-shadow: 0 1px 4px rgba(45, 80, 22, 0.04);
+        }
+        .ww-natal-select { padding-right: 30px; cursor: pointer; background-image:
+            linear-gradient(45deg, transparent 50%, var(--ww-primary) 50%),
+            linear-gradient(135deg, var(--ww-primary) 50%, transparent 50%);
+            background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+            background-size: 5px 5px, 5px 5px;
+            background-repeat: no-repeat;
+            opacity: 1;
+        }
+        .ww-natal-select:focus,
+        .ww-natal-input:focus {
+            outline: none;
+            border-color: var(--ww-sage);
+            box-shadow: 0 2px 10px rgba(45, 80, 22, 0.10);
+        }
+        .ww-natal-input[type="time"] {
+            padding: 9px 12px;
+            font-feature-settings: "tnum";
+        }
+        .ww-natal-check {
+            display: inline-flex; align-items: center; gap: 8px;
+            margin-top: 6px;
+            font-family: var(--ww-font-body);
+            font-size: 0.78rem; color: var(--ww-grey);
+            cursor: pointer;
+            user-select: none;
+        }
+        .ww-natal-check input[type="checkbox"] {
+            appearance: none; -webkit-appearance: none;
+            width: 16px; height: 16px;
+            border: 1.5px solid rgba(122, 158, 94, 0.5);
+            border-radius: 4px;
+            background: #fff;
+            display: inline-grid; place-content: center;
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s;
+            flex-shrink: 0;
+        }
+        .ww-natal-check input[type="checkbox"]:checked {
+            background: var(--ww-primary);
+            border-color: var(--ww-primary);
+        }
+        .ww-natal-check input[type="checkbox"]:checked::after {
+            content: '';
+            width: 8px; height: 4px;
+            border-left: 2px solid #fff;
+            border-bottom: 2px solid #fff;
+            transform: rotate(-45deg) translate(1px, -1px);
+        }
+
+        /* --- Place autocomplete --------------------------------- */
+        .ww-place-wrap { position: relative; }
+        .ww-place-input { padding-right: 36px; }
+        .ww-place-spinner {
+            position: absolute; right: 12px; top: 50%;
+            transform: translateY(-50%);
+            width: 14px; height: 14px;
+            border: 2px solid rgba(122, 158, 94, 0.25);
+            border-top-color: var(--ww-sage);
+            border-radius: 50%;
+            animation: wwSpin 0.7s linear infinite;
+            opacity: 0;
+            pointer-events: none;
+        }
+        .ww-place-spinner.active { opacity: 1; }
+        @keyframes wwSpin { to { transform: translateY(-50%) rotate(360deg); } }
+
+        .ww-place-suggestions {
+            position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+            background: #fff;
+            border: 1px solid rgba(122, 158, 94, 0.32);
+            border-radius: 10px;
+            box-shadow: 0 8px 24px rgba(45, 80, 22, 0.14);
+            z-index: 10;
+            max-height: 220px;
+            overflow-y: auto;
+            padding: 4px;
+        }
+        .ww-place-suggestion {
+            padding: 9px 12px;
+            border-radius: 6px;
+            font-family: var(--ww-font-body);
+            font-size: 0.86rem;
+            color: var(--ww-charcoal);
+            cursor: pointer;
+            transition: background 0.15s;
+            line-height: 1.35;
+        }
+        .ww-place-suggestion:hover,
+        .ww-place-suggestion.active {
+            background: rgba(184, 212, 168, 0.35);
+            color: var(--ww-primary);
+        }
+        .ww-place-confirmed {
+            display: inline-flex; align-items: center; gap: 6px;
+            margin-top: 4px;
+            font-family: var(--ww-font-body);
+            font-size: 0.72rem; color: var(--ww-sage);
+            font-weight: 600;
+            letter-spacing: 0.04em;
+        }
+        .ww-place-attribution {
+            font-family: var(--ww-font-body);
+            font-size: 0.62rem;
+            color: rgba(122, 112, 104, 0.6);
+            margin-top: 6px;
+            text-align: right;
+        }
+        .ww-place-attribution a {
+            color: inherit; text-decoration: underline;
+            text-decoration-color: rgba(122, 112, 104, 0.35);
+        }
+
+        /* --- Cadence chooser ------------------------------------ */
+        .ww-cadence {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin: clamp(10px, 1.6vh, 14px) auto;
+            max-width: 520px;
+            text-align: left;
+            padding: 0 4px;
+        }
+        .ww-cadence-option {
+            display: flex; align-items: flex-start; gap: 10px;
+            cursor: pointer;
+            font-family: var(--ww-font-body);
+            font-size: 0.84rem;
+            line-height: 1.4;
+            color: var(--ww-charcoal);
+        }
+        .ww-cadence-option input[type="checkbox"] {
+            appearance: none; -webkit-appearance: none;
+            width: 18px; height: 18px;
+            border: 1.5px solid rgba(122, 158, 94, 0.5);
+            border-radius: 5px;
+            background: #fff;
+            margin-top: 1px;
+            display: inline-grid; place-content: center;
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s;
+            flex-shrink: 0;
+        }
+        .ww-cadence-option input[type="checkbox"]:checked {
+            background: var(--ww-primary);
+            border-color: var(--ww-primary);
+        }
+        .ww-cadence-option input[type="checkbox"]:checked::after {
+            content: '';
+            width: 9px; height: 5px;
+            border-left: 2px solid #fff;
+            border-bottom: 2px solid #fff;
+            transform: rotate(-45deg) translate(1px, -1px);
+        }
+        .ww-cadence-text { display: flex; flex-direction: column; gap: 2px; }
+        .ww-cadence-title { font-weight: 600; color: var(--ww-primary); }
+        .ww-cadence-sub   { color: var(--ww-grey); font-size: 0.76rem; }
+
+        /* Short viewport: tighten natal panel padding */
+        @media (max-height: 740px) {
+            .ww-natal-panel { padding: 12px 16px; margin: 8px auto; }
+            .ww-natal-row { gap: 8px; margin-bottom: 8px; }
+            .ww-natal-title { font-size: 0.95rem; margin-bottom: 8px; }
+            .ww-natal-select, .ww-natal-input { padding: 8px 12px; font-size: 0.88rem; }
+            .ww-cadence-option { font-size: 0.78rem; }
+            .ww-cadence-sub    { font-size: 0.7rem; }
+        }
+        @media (max-height: 560px) {
+            .ww-natal-panel { padding: 10px 14px; }
+            .ww-natal-eyebrow { display: none; }
+            .ww-cadence-sub { display: none; }
+        }
+
+        /* --- Responsive ---------------------------------------- */
+        @media (max-width: 760px) {
+            .ww-insights,
+            .ww-insights--triple {
+                grid-template-columns: 1fr;
+                max-width: 540px;
+            }
+        }
+        @media (max-width: 640px) {
+            .ww-tarot-hero {
+                --ww-card-h-base: clamp(280px, 46vh, 360px);
+                padding: clamp(12px, 2.4vh, 24px) 14px;
+            }
+            .ww-card-stage { height: calc(var(--ww-card-h) + clamp(20px, 3vh, 36px)); }
+            .ww-form-row { flex-direction: column; align-items: center; }
+            .ww-select { min-width: 240px; }
+            .ww-email-form { flex-direction: column; align-items: stretch; padding: 0 12px; }
+            .ww-email-input { min-width: unset; }
+            .ww-card-mandala { width: 42px; height: 42px; }
+            .ww-pair-card-chip { font-size: 0.74rem; padding: 4px 12px; }
+            .ww-pair-card-name { font-size: 0.86rem; }
+            .ww-insight { padding: 14px 16px; }
+            .ww-insight-name { font-size: 1.05rem; }
+            .ww-synergy { padding: 16px 18px; }
+        }
+
+        /* Narrow phones — tighten the fan so cards never cross the section
+           edge. The cards stay overlapped but the lean is gentler. */
+        @media (max-width: 480px) {
+            .ww-tarot-hero {
+                --ww-fan-x:        0.52;
+                --ww-fan-x-fan:    0.58;
+                --ww-fan-rot:      6deg;
+                --ww-fan-rot-mid:  7deg;
+                --ww-fan-rot-fan:  9deg;
+            }
+        }
+
+        /* Very narrow / older phones (≤360px) — tighter still. */
+        @media (max-width: 360px) {
+            .ww-tarot-hero {
+                --ww-fan-x:        0.48;
+                --ww-fan-x-fan:    0.52;
+                --ww-fan-rot:      5deg;
+                --ww-fan-rot-mid:  6deg;
+                --ww-fan-rot-fan:  7deg;
+            }
+        }
+
+        /* Short viewports (mobile portrait + landscape phones) ---- */
+        @media (max-height: 740px) {
+            .ww-tarot-hero {
+                --ww-card-h-base: clamp(200px, 36vh, 280px);
+            }
+            .ww-eyebrow {
+                font-size: 0.6rem;
+                letter-spacing: 0.24em;
+                padding: 5px 12px;
+                margin-bottom: 10px;
+            }
+            .ww-trust-row {
+                gap: 10px;
+                font-size: 0.68rem;
+                margin-top: 12px;
+            }
+            .ww-trust-item svg { width: 12px; height: 12px; }
+            .ww-card-stage { margin-bottom: 6px; }
+            .ww-pair-title { font-size: 1.1rem; margin-bottom: 4px; }
+            .ww-pair-cards { margin-bottom: 6px; }
+            .ww-reading-text {
+                font-size: 0.82rem; line-height: 1.5;
+            }
+            .ww-cta { margin-top: 8px; }
+            .ww-cta-divider { display: none; }
+            .ww-cta-eyebrow { display: none; }
+            .ww-cta-heading { font-size: 1rem; margin-bottom: 4px; }
+            .ww-cta-subtext {
+                font-size: 0.78rem;
+                margin-bottom: 8px;
+            }
+            .ww-email-input,
+            .ww-submit-btn { padding: 9px 14px; font-size: 0.88rem; }
+            .ww-privacy { font-size: 0.68rem; }
+            .ww-again-btn { margin-top: 6px; padding: 6px 16px; font-size: 0.72rem; }
+        }
+
+        /* Very short viewports (≤560px) — drop the long-form reading */
+        @media (max-height: 560px) {
+            .ww-tarot-hero {
+                --ww-card-h-base: clamp(160px, 32vh, 220px);
+            }
+            .ww-insights { display: none; }
+            .ww-synergy  { display: none; }
+            .ww-reading-text { display: none; }
+            .ww-pair-title { font-size: 1rem; }
+            .ww-cta-subtext { display: none; }
+            .ww-again-btn { display: none; }
+            .ww-trust-row { display: none; }
+        }
+
+        /* --- Accessibility ------------------------------------- */
+        .ww-tarot-hero :focus-visible { outline: 2px solid var(--ww-gold); outline-offset: 2px; }
+
+        @media (prefers-reduced-motion: reduce) {
+            .ww-tarot-hero *, .ww-tarot-hero *::before, .ww-tarot-hero *::after {
+                animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<section
+    class="ww-tarot-hero"
+    x-data="wwTarot()"
+    x-init="init()"
+    data-email-endpoint="https://automations.digiimark.com/webhook/95756ce0-48ee-49e9-aaf0-690a70f06e33"
+>
+    <!-- Stars -->
+    <div class="ww-stars" x-ref="stars"></div>
+
+    <div class="ww-content">
+
+        <div class="ww-step-container">
+
+        <!-- ============================
+             STEP 1 — Birth Date Input
+             ============================ -->
+        <div class="ww-step" x-show="step === 'input'" x-transition:leave.opacity.duration.300ms>
+
+            <span class="ww-eyebrow">Free Birth Tarot Reading</span>
+
+            <h1 class="ww-headline">The Two Cards You Were<br><em>Born Under</em></h1>
+            <p class="ww-subheadline">Your birth date holds a quiet story — written in two of the Major Arcana. Reveal your Personality and Soul cards in thirty seconds, then receive a weekly personalised reading drawn through their lens, written by a hand-vetted Willow Whispers advisor.</p>
+
+            <div class="ww-form-row">
+                <div class="ww-select-wrap">
+                    <select class="ww-select" x-model="month" aria-label="Month of birth">
+                        <option value="" disabled selected>Month</option>
+                        <template x-for="m in months" :key="m.value">
+                            <option :value="m.value" x-text="m.label"></option>
+                        </template>
+                    </select>
+                    <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+                </div>
+                <div class="ww-select-wrap">
+                    <select class="ww-select" x-model="day" aria-label="Day of birth">
+                        <option value="" disabled selected>Day</option>
+                        <template x-for="d in daysInMonth" :key="d">
+                            <option :value="d" x-text="d"></option>
+                        </template>
+                    </select>
+                    <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+                </div>
+            </div>
+
+            <button
+                class="ww-reveal-btn"
+                :disabled="!day || !month"
+                @click="revealCards()"
+            >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01z"/></svg>
+                Reveal My Birth Cards
+            </button>
+
+            <div class="ww-trust-row" aria-label="Trust signals">
+                <span class="ww-trust-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+                    Hand-vetted advisors
+                </span>
+                <span class="ww-trust-sep" aria-hidden="true"></span>
+                <span class="ww-trust-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+                    Private &amp; confidential
+                </span>
+                <span class="ww-trust-sep" aria-hidden="true"></span>
+                <span class="ww-trust-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    Free · 30 seconds
+                </span>
+            </div>
+        </div>
+
+        <!-- ============================
+             STEP 2 — Card Drawing + Reading
+             ============================ -->
+        <div
+            class="ww-step"
+            x-show="step === 'drawing'"
+            x-transition:enter.opacity.duration.500ms
+        >
+            <!-- Card Stage -->
+            <div class="ww-card-stage" style="perspective: 1200px;">
+
+                <!-- LEFT — Personality Card -->
+                <div class="ww-tarot-card ww-tarot-card--left" :class="'phase-' + phase">
+                    <div class="ww-card-inner" :class="{ flipped: phase === 'flip' || phase === 'revealed' }">
+                        <!-- Back -->
+                        <div class="ww-card-face ww-card-back"></div>
+                        <!-- Front — Personality Card -->
+                        <div class="ww-card-face ww-card-front">
+                            <img
+                                class="ww-card-art"
+                                :src="cardImage(pair?.personality)"
+                                :alt="pair?.personality?.name"
+                                loading="lazy"
+                                draggable="false"
+                            >
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CENTER — Middle card (visible for triple only / sparkle host) -->
+                <div class="ww-tarot-card ww-tarot-card--center" :class="'phase-' + phase">
+                    <!-- Sparkle burst anchored to center -->
+                    <div class="ww-sparkles" :class="{ active: phase === 'revealed' }" x-ref="sparkles"></div>
+
+                    <div class="ww-card-inner" :class="{ flipped: (phase === 'flip' || phase === 'revealed') && pair?.isTriple }">
+                        <!-- Back -->
+                        <div class="ww-card-face ww-card-back"></div>
+                        <!-- Front — Middle card (triple only) -->
+                        <div class="ww-card-face ww-card-front" x-show="pair?.isTriple">
+                            <img
+                                class="ww-card-art"
+                                :src="cardImage(pair?.middle)"
+                                :alt="pair?.middle?.name"
+                                loading="lazy"
+                                draggable="false"
+                            >
+                        </div>
+                    </div>
+                </div>
+
+                <!-- RIGHT — Soul Card -->
+                <div class="ww-tarot-card ww-tarot-card--right" :class="'phase-' + phase">
+                    <div class="ww-card-inner" :class="{ flipped: phase === 'flip' || phase === 'revealed' }">
+                        <!-- Back -->
+                        <div class="ww-card-face ww-card-back"></div>
+                        <!-- Front — Soul Card -->
+                        <div class="ww-card-face ww-card-front">
+                            <img
+                                class="ww-card-art"
+                                :src="cardImage(pair?.soul)"
+                                :alt="pair?.soul?.name"
+                                loading="lazy"
+                                draggable="false"
+                            >
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Reading -->
+            <div class="ww-reading" :class="{ visible: phase === 'revealed' }">
+                <div class="ww-pair-cards">
+                    <span class="ww-pair-card-chip ww-pair-card-chip--personality">
+                        <span class="ww-pair-card-role" x-text="pair?.isTriple ? 'Radiant' : 'Personality'"></span>
+                        <span class="ww-pair-card-name" x-text="pair?.personality.name"></span>
+                    </span>
+                    <template x-if="pair?.isTriple">
+                        <span class="ww-pair-card-chip ww-pair-card-chip--destiny">
+                            <span class="ww-pair-card-role">Destiny</span>
+                            <span class="ww-pair-card-name" x-text="pair?.middle?.name"></span>
+                        </span>
+                    </template>
+                    <span class="ww-pair-card-chip ww-pair-card-chip--soul">
+                        <span class="ww-pair-card-role">Soul</span>
+                        <span class="ww-pair-card-name" x-text="pair?.soul.name"></span>
+                    </span>
+                </div>
+                <h2 class="ww-pair-title" x-text="pair?.title"></h2>
+
+                <!-- Individual card insights -->
+                <div class="ww-insights" :class="{ 'ww-insights--triple': pair?.isTriple }">
+                    <article class="ww-insight ww-insight--personality">
+                        <div class="ww-insight-head">
+                            <span class="ww-insight-eyebrow" x-text="pair?.isTriple ? 'Radiant Card' : 'Personality Card'"></span>
+                            <span class="ww-insight-name" x-text="pair?.personality.name"></span>
+                            <span class="ww-insight-numeral" x-text="pair?.personality.numeral"></span>
+                        </div>
+                        <p class="ww-insight-text" x-text="pair?.personality.insight"></p>
+                        <p class="ww-insight-keywords" x-text="pair?.personality.keywords.join(' · ')"></p>
+                    </article>
+
+                    <template x-if="pair?.isTriple">
+                        <article class="ww-insight ww-insight--destiny">
+                            <div class="ww-insight-head">
+                                <span class="ww-insight-eyebrow">Destiny Card</span>
+                                <span class="ww-insight-name" x-text="pair?.middle?.name"></span>
+                                <span class="ww-insight-numeral" x-text="pair?.middle?.numeral"></span>
+                            </div>
+                            <p class="ww-insight-text" x-text="pair?.middle?.insight"></p>
+                            <p class="ww-insight-keywords" x-text="pair?.middle?.keywords.join(' · ')"></p>
+                        </article>
+                    </template>
+
+                    <article class="ww-insight ww-insight--soul">
+                        <div class="ww-insight-head">
+                            <span class="ww-insight-eyebrow">Soul Card</span>
+                            <span class="ww-insight-name" x-text="pair?.soul.name"></span>
+                            <span class="ww-insight-numeral" x-text="pair?.soul.numeral"></span>
+                        </div>
+                        <p class="ww-insight-text" x-text="pair?.soul.insight"></p>
+                        <p class="ww-insight-keywords" x-text="pair?.soul.keywords.join(' · ')"></p>
+                    </article>
+                </div>
+
+                <!-- Synergy / why this pairing is rare -->
+                <section class="ww-synergy">
+                    <div class="ww-synergy-eyebrow">&#10022; Where your cards meet &#10022;</div>
+                    <p class="ww-reading-text" x-text="pair?.reading"></p>
+                </section>
+            </div>
+
+            <!-- CTA -->
+            <div class="ww-cta" :class="{ visible: phase === 'revealed' }">
+                <div class="ww-cta-divider"></div>
+
+                <template x-if="!submitted">
+                    <div>
+                        <span class="ww-cta-eyebrow">&#10022; Your Monday Morning Whisper &#10022;</span>
+                        <h3 class="ww-cta-heading">
+                            Don&rsquo;t let this end here, <em class="ww-cta-heading-accent" x-text="pair?.title"></em>.
+                        </h3>
+                        <p class="ww-cta-subtext">
+                            Every Monday, a hand-written reflection through the lens of your two birth cards &mdash; a quiet ritual to begin the week.
+                        </p>
+
+                        <form class="ww-email-form" @submit.prevent="submitEmail()">
+                            <input class="ww-email-input" type="email" x-model="email" placeholder="your@email.com" required aria-label="Email address">
+                            <button class="ww-submit-btn"
+                                    type="submit"
+                                    :disabled="submitting || !email"
+                                    x-text="submitting ? 'Sending&hellip;' : '\u2726  Send Me My Weekly Reading'"></button>
+                        </form>
+                        <p x-show="submitError" style="margin-top:10px;font-size:0.8rem;color:#A04545;">Something went wrong &mdash; please try again.</p>
+                        <p class="ww-privacy">Free forever &middot; Unsubscribe with one tap &middot; <a href="/privacy" target="_blank">Privacy&nbsp;Policy</a></p>
+                    </div>
+                </template>
+
+                <template x-if="submitted">
+                    <div class="ww-success">
+                        <div class="ww-success-icon">&#10024;</div>
+                        <h3 class="ww-success-heading">Your weekly reading is on its way.</h3>
+                        <p class="ww-success-text">
+                            Your first letter &mdash; written for <em x-text="pair?.title"></em> through the lens of
+                            <strong x-text="pair?.personality.name"></strong> &amp; <strong x-text="pair?.soul.name"></strong> &mdash;
+                            lands in <strong x-text="email"></strong> this Monday morning. Keep an eye on your inbox.
+                        </p>
+                    </div>
+                </template>
+
+                <button class="ww-again-btn" @click="reset()">&#10022; Read Another Birth Date</button>
+            </div>
+
+        </div>
+        </div><!-- /ww-step-container -->
+    </div><!-- /ww-content -->
+</section>
+
+
+<script>
+/* =============================================================
+   WILLOW WHISPERS — BIRTH TAROT WIDGET
+   Algorithm: MM + DD → reduce to Major Arcana pair
+   Based on Mary Greer's Tarot Constellations (1987)
+   ============================================================= */
+function wwTarot() {
+    return {
+
+        /* --- State --- */
+        step:        'input',
+        phase:       'stack',
+        day:         '',
+        month:       '',
+        email:       '',
+        submitting:  false,
+        submitted:   false,
+        submitError: false,
+        pair:        null,
+
+        /* --- Natal chart state (Stage A of the CTA) --- */
+        year:           '',
+        time:           '',           /* HH:MM 24h (from <input type=time>) */
+        timeUnknown:    false,        /* checkbox: I don't know my time */
+        placeQuery:     '',
+        placeName:      '',           /* the canonical OpenStreetMap display_name once locked in */
+        lat:            null,
+        lng:            null,
+        tz:             '',           /* IANA tz, resolved client-side via timeapi.io when possible */
+        placeSuggestions: [],
+        placeLoading:   false,
+        placeFocused:   false,
+        placeAbort:     null,         /* AbortController for in-flight Nominatim request */
+
+        /* --- Cadence (Phase 2 of the CTA) --- */
+        cadenceWeekly:  true,
+        cadenceDaily:   false,
+
+        /* --- Convenience getter so the UI can disable the time input
+               cleanly when timeUnknown is checked. --- */
+        get timeKnown() { return !this.timeUnknown; },
+
+        /* --- Birth-year dropdown options (1925 -> current year) --- */
+        get years() {
+            const now = new Date().getFullYear();
+            const out = [];
+            for (let y = now; y >= 1925; y--) out.push(y);
+            return out;
+        },
+
+        /* --- Months --- */
+        months: [
+            { value: 1,  label: 'January'   }, { value: 2,  label: 'February'  },
+            { value: 3,  label: 'March'      }, { value: 4,  label: 'April'     },
+            { value: 5,  label: 'May'        }, { value: 6,  label: 'June'      },
+            { value: 7,  label: 'July'       }, { value: 8,  label: 'August'    },
+            { value: 9,  label: 'September'  }, { value: 10, label: 'October'   },
+            { value: 11, label: 'November'   }, { value: 12, label: 'December'  },
+        ],
+
+        /* --- Days in selected month --- */
+        get daysInMonth() {
+            const m = parseInt(this.month);
+            if (!m) return Array.from({ length: 31 }, (_, i) => i + 1);
+            const days = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+            return Array.from({ length: days[m - 1] }, (_, i) => i + 1);
+        },
+
+        /* --- Init: scatter gentle gold motes --- */
+        init() {
+            const container = this.$refs.stars;
+            const count = window.innerWidth < 640 ? 30 : 55;
+            for (let i = 0; i < count; i++) {
+                const s = document.createElement('div');
+                const size = Math.random();
+                s.className = 'ww-star ' + (size < 0.55 ? 'ww-star--sm' : size < 0.88 ? 'ww-star--md' : 'ww-star--lg');
+                s.style.left  = (Math.random() * 100).toFixed(1) + '%';
+                s.style.top   = (Math.random() * 100).toFixed(1) + '%';
+                s.style.setProperty('--d',     (3 + Math.random() * 4).toFixed(1) + 's');
+                s.style.setProperty('--delay', (Math.random() * 5).toFixed(1) + 's');
+                s.style.setProperty('--o-min', (0.03 + Math.random() * 0.07).toFixed(2));
+                s.style.setProperty('--o-max', (0.18 + Math.random() * 0.22).toFixed(2));
+                container.appendChild(s);
+            }
+        },
+
+        /* --- Sparkle burst on reveal --- */
+        burstSparkles() {
+            const container = this.$refs.sparkles;
+            if (!container) return;
+            container.innerHTML = '';
+            for (let i = 0; i < 20; i++) {
+                const sp    = document.createElement('div');
+                sp.className = 'ww-sparkle';
+                const angle = (Math.PI * 2 * i) / 20;
+                const dist  = 55 + Math.random() * 70;
+                sp.style.left = '50%';
+                sp.style.top  = '50%';
+                sp.style.setProperty('--sx', (Math.cos(angle) * dist).toFixed(0) + 'px');
+                sp.style.setProperty('--sy', (Math.sin(angle) * dist).toFixed(0) + 'px');
+                sp.style.setProperty('--sd', (Math.random() * 0.4).toFixed(2) + 's');
+                container.appendChild(sp);
+            }
+        },
+
+        /* =========================================================
+           PLACE AUTOCOMPLETE — OpenStreetMap Nominatim
+           Free, no API key, but rate-limited. We debounce in markup
+           (@input.debounce.300ms) and only fire when the query is
+           >= 3 characters. On select we resolve IANA timezone
+           via timeapi.io (also free, no key) so n8n doesn't have
+           to do the lat/lng -> tz lookup itself.
+           ========================================================= */
+        async searchPlace() {
+            const q = (this.placeQuery || '').trim();
+            /* If the user is clearing or editing a previously locked
+               choice, drop the lat/lng so we don't accidentally send
+               stale coordinates with a different name. */
+            if (this.placeName && q !== this.placeName) {
+                this.placeName = '';
+                this.lat = null;
+                this.lng = null;
+                this.tz  = '';
+            }
+            if (q.length < 3) {
+                this.placeSuggestions = [];
+                this.placeLoading = false;
+                return;
+            }
+            try {
+                if (this.placeAbort) this.placeAbort.abort();
+                this.placeAbort = new AbortController();
+                this.placeLoading = true;
+                const url = 'https://nominatim.openstreetmap.org/search'
+                          + '?format=json&addressdetails=1&limit=5&accept-language=en'
+                          + '&q=' + encodeURIComponent(q);
+                const res = await fetch(url, {
+                    signal: this.placeAbort.signal,
+                    headers: { 'Accept': 'application/json' },
+                });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const json = await res.json();
+                this.placeSuggestions = Array.isArray(json) ? json.slice(0, 5) : [];
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    console.warn('[WW Tarot] Place lookup error:', err);
+                }
+                this.placeSuggestions = [];
+            } finally {
+                this.placeLoading = false;
+            }
+        },
+
+        async selectPlace(s) {
+            if (!s) return;
+            this.placeName        = s.display_name || this.placeQuery;
+            this.placeQuery       = this.placeName;
+            this.lat              = parseFloat(s.lat);
+            this.lng              = parseFloat(s.lon);
+            this.placeSuggestions = [];
+            this.placeFocused     = false;
+            /* Resolve the IANA timezone for this lat/lng. timeapi.io
+               is free and CORS-friendly. If it fails we fall back
+               to '' and let n8n resolve server-side via geo-tz. */
+            this.tz = '';
+            try {
+                const tzRes = await fetch(
+                    'https://timeapi.io/api/TimeZone/coordinate'
+                    + '?latitude=' + this.lat
+                    + '&longitude=' + this.lng,
+                    { headers: { 'Accept': 'application/json' } },
+                );
+                if (tzRes.ok) {
+                    const tzJson = await tzRes.json();
+                    if (tzJson && tzJson.timeZone) this.tz = tzJson.timeZone;
+                }
+            } catch (err) {
+                console.warn('[WW Tarot] TZ lookup failed; n8n will resolve:', err);
+            }
+        },
+
+        /* =========================================================
+           CARD IMAGE LOOKUP
+           Maps a card object (with `name`) to its illustrated PNG
+           in /tarot_card_images. The folder is missing 1.png, so
+           cards I–XXI live at (N + 1).png while The Fool is 0.png.
+           ========================================================= */
+        cardImageMap: {
+            'The Fool':          '0.png',
+            'The Magician':      '2.png',
+            'The High Priestess':'3.png',
+            'The Empress':       '4.png',
+            'The Emperor':       '5.png',
+            'The Hierophant':    '6.png',
+            'The Lovers':        '7.png',
+            'The Chariot':       '8.png',
+            'Strength':          '9.png',
+            'The Hermit':        '10.png',
+            'Wheel of Fortune':  '11.png',
+            'Justice':           '12.png',
+            'The Hanged Man':    '13.png',
+            'Death':             '14.png',
+            'Temperance':        '15.png',
+            'The Devil':         '16.png',
+            'The Tower':         '17.png',
+            'The Star':          '18.png',
+            'The Moon':          '19.png',
+            'The Sun':           '20.png',
+            'Judgement':         '21.png',
+            'The World':         '22.png',
+        },
+        cardImage(card) {
+            if (!card || !card.name) return '';
+            const file = this.cardImageMap[card.name];
+            return file ? `tarot_card_images/${file}` : '';
+        },
+
+        /* =========================================================
+           BIRTH CARD ALGORITHM
+           Formula: sum = MM + DD, reduce until ≤ 22
+           • 1–9  (single digit) → add 9 for personality number
+           • 10–21              → personality = sum, soul = digit-sum
+           • 19                 → triple: Sun + Wheel + Magician
+           • 22                 → Fool + Emperor
+           Based on: Mary Greer, Tarot Constellations (1987)
+           ========================================================= */
+        calculatePair(month, day) {
+            let sum = parseInt(month) + parseInt(day);
+
+            /* Reduce while > 22 */
+            while (sum > 22) {
+                sum = String(sum).split('').reduce((a, b) => a + parseInt(b), 0);
+            }
+
+            /* Map to pair key */
+            let key;
+            if (sum === 22) {
+                key = '22_4';
+            } else if (sum === 19) {
+                key = '19_10_1';
+            } else if (sum >= 10) {
+                const soul = String(sum).split('').reduce((a, b) => a + parseInt(b), 0);
+                key = `${sum}_${soul}`;
+            } else {
+                /* Single digit: add 9 to get personality card number */
+                key = `${sum + 9}_${sum}`;
+            }
+
+            return this.birthCardPairs[key] || null;
+        },
+
+        /* --- Reveal cards --- */
+        revealCards() {
+            if (!this.day || !this.month) return;
+            this.pair      = this.calculatePair(this.month, this.day);
+            this.submitted = false;
+            this.email     = '';
+            this.phase     = 'stack';
+            this.step      = 'drawing';
+
+            setTimeout(() => { this.phase = 'appear'; },  100);
+            setTimeout(() => { this.phase = 'fan';    },  800);
+            setTimeout(() => { this.phase = 'select'; }, 2000);
+            setTimeout(() => { this.phase = 'flip';   }, 3000);
+            setTimeout(() => { this.phase = 'revealed'; this.burstSparkles(); }, 4200);
+        },
+
+        /* --- Submit email --- */
+        async submitEmail() {
+            if (!this.email || this.submitting) return;
+            this.submitting  = true;
+            this.submitError = false;
+
+            const WEBHOOK = 'https://automations.digiimark.com/webhook/95756ce0-48ee-49e9-aaf0-690a70f06e33';
+            const endpoint = this.$el.closest('[data-email-endpoint]')?.dataset.emailEndpoint || WEBHOOK;
+
+            /* Weekly-only subscription. The form only collects month + day +
+               email; natal-chart fields are no longer requested here. */
+            const payload = {
+                email:                this.email,
+                subscription_type:    'weekly_tarot_reading',
+                source:               'birth_tarot_widget',
+
+                cadence_weekly:       true,
+                cadence_daily:        false,
+
+                /* Tarot personalisation, computed client-side from MM + DD. */
+                pair_title:           this.pair.title,
+                pair_key:             this.pair.isTriple ? 'triple' : 'pair',
+                personality_card:     this.pair.personality.name,
+                personality_keywords: this.pair.personality.keywords.join(', '),
+                soul_card:            this.pair.soul.name,
+                soul_keywords:        this.pair.soul.keywords.join(', '),
+                middle_card:          this.pair.isTriple ? this.pair.middle.name : null,
+                pair_keywords:        this.pair.keywords.join(', '),
+
+                birth_month:          parseInt(this.month),
+                birth_day:            parseInt(this.day),
+                birth_date:           `${parseInt(this.month)}/${parseInt(this.day)}`,
+                timestamp:            new Date().toISOString(),
+            };
+
+            try {
+                const res = await fetch(endpoint, {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body:    JSON.stringify(payload),
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                this.submitted = true;
+            } catch (err) {
+                console.error('[WW Tarot] Webhook error:', err);
+                this.submitError = true;
+            } finally {
+                this.submitting = false;
+            }
+        },
+
+        /* --- Reset --- */
+        reset() {
+            this.step        = 'input';
+            this.phase       = 'stack';
+            this.day         = '';
+            this.month       = '';
+            this.pair        = null;
+            this.email       = '';
+            this.submitted   = false;
+            this.submitError = false;
+            /* Clear natal + cadence state so the next reader starts fresh. */
+            this.year             = '';
+            this.time             = '';
+            this.timeUnknown      = false;
+            this.placeQuery       = '';
+            this.placeName        = '';
+            this.lat              = null;
+            this.lng              = null;
+            this.tz               = '';
+            this.placeSuggestions = [];
+            this.cadenceWeekly    = true;
+            this.cadenceDaily     = false;
+        },
+
+        /* ==========================================================
+           BIRTH CARD PAIRS — All 13 combinations
+           Source: Mary Greer's Tarot Constellations (1987),
+           Tarot School, Labyrinthos, Biddy Tarot, Mystic Mondays
+           ========================================================== */
+        birthCardPairs: {
+
+            /* 10 / 1 — Wheel of Fortune + Magician */
+            '10_1': {
+                isTriple: false,
+                title: 'The Destiny Creator',
+                personality: {
+                    number: 10, numeral: 'X',  name: 'Wheel of Fortune',
+                    keywords: ['Destiny', 'Cycles', 'Fortune'],
+                    insight: 'The Wheel of Fortune in your personality position gives you an almost uncanny sense of timing — knowing when to push, when to pause, and when something is on the verge of turning. You read the rhythm of life rather than fight it, and that is a quieter superpower than most people realise.'
+                },
+                soul: {
+                    number: 1,  numeral: 'I',  name: 'The Magician',
+                    keywords: ['Manifestation', 'Willpower', 'Magic'],
+                    insight: 'The Magician at your soul is the part of you that knows you already have everything you need to build the life you want — focus, willpower, and the rare ability to turn an idea into something real. You are a maker, even on the days you do not yet call yourself one.'
+                },
+                keywords: ['Manifestation', 'Timing', 'Adaptability', 'Resourcefulness', 'Destiny'],
+                reading: 'Your birth cards place you at the crossroads of fate and free will — the eternal question of how much you can shape your own destiny. The Wheel of Fortune flows through you as an innate understanding that life moves in cycles, while The Magician gives you the power to manifest brilliantly within those cycles. You have a remarkable instinct for timing — knowing when to act and when to surrender — and that wisdom is rarer than you know. Trust that every turn of your wheel has brought you exactly where you need to be.',
+            },
+
+            /* 11 / 2 — Justice + High Priestess */
+            '11_2': {
+                isTriple: false,
+                title: 'The Keeper of Truth',
+                personality: {
+                    number: 11, numeral: 'XI', name: 'Justice',
+                    keywords: ['Fairness', 'Truth', 'Balance'],
+                    insight: 'Justice in your personality position gives you an unshakeable sense of fairness and a sharp, clear-eyed view of the world. You see through performance to truth quickly, and people trust you because they can feel that you do.'
+                },
+                soul: {
+                    number: 2,  numeral: 'II', name: 'The High Priestess',
+                    keywords: ['Intuition', 'Mystery', 'Wisdom'],
+                    insight: 'The High Priestess at your core is the deep well of intuition you have carried since childhood — the knowing that arrives before evidence does. Honour her quiet voice; she has rarely steered you wrong.'
+                },
+                keywords: ['Integrity', 'Intuition', 'Discernment', 'Truth-Seeking', 'Insight'],
+                reading: 'Born under Justice and The High Priestess, you see through illusion with both sharp logic and deep intuition — a rare combination that most people spend lifetimes trying to develop. Where others see only the surface, you perceive the currents beneath, guided by an inner compass that rarely misleads you. You carry a gift for fairness that goes beyond rules — it lives in your bones as an almost instinctive sense of what is right. Your wisest decisions are always made when you honour both your mind and your quiet inner knowing equally.',
+            },
+
+            /* 12 / 3 — Hanged Man + Empress */
+            '12_3': {
+                isTriple: false,
+                title: 'The Sacred Dreamer',
+                personality: {
+                    number: 12, numeral: 'XII', name: 'The Hanged Man',
+                    keywords: ['Surrender', 'Perspective', 'Pause'],
+                    insight: 'The Hanged Man in your personality position reveals a soul who finds meaning in pause and perspective — the rare ability to step back, see things upside-down, and emerge with a new way of looking at the world. Where others rush, you receive.'
+                },
+                soul: {
+                    number: 3,  numeral: 'III', name: 'The Empress',
+                    keywords: ['Abundance', 'Nurturing', 'Creation'],
+                    insight: 'The Empress at your soul is your nurturing, creative life-force — abundant, generative, deeply connected to nature, beauty, and the people you love. You are someone who makes everything around you grow, often without trying.'
+                },
+                keywords: ['Creative Vision', 'Surrender', 'Nurturing', 'New Perspectives', 'Growth'],
+                reading: 'Your birth cards speak of a soul who creates from the most unexpected places — through pauses, surrenders, and the willingness to see the world from an entirely different angle. The Hanged Man grants you a rare perspective that others miss, while The Empress pours abundant creative energy into everything you touch. Your greatest breakthroughs have come not when you forced things forward, but when you allowed yourself to rest and receive. You are here to birth beautiful things into the world, and the world genuinely needs what only you can create.',
+            },
+
+            /* 13 / 4 — Death + Emperor */
+            '13_4': {
+                isTriple: false,
+                title: 'The Architect of Change',
+                personality: {
+                    number: 13, numeral: 'XIII', name: 'Death',
+                    keywords: ['Transformation', 'Renewal', 'Release'],
+                    insight: 'Death in your personality position is not loss — it is your ability to let go of what no longer fits and trust that something better is built from the clearing. You are unflinching about endings, and that is its own kind of grace.'
+                },
+                soul: {
+                    number: 4,  numeral: 'IV',   name: 'The Emperor',
+                    keywords: ['Authority', 'Structure', 'Leadership'],
+                    insight: 'The Emperor at your soul gives you natural authority, structure, and the kind of groundedness others lean on. You build legacies, not monuments — things meant to outlast their builder.'
+                },
+                keywords: ['Transformation', 'Leadership', 'Rebuilding', 'Strength', 'New Foundations'],
+                reading: 'Born under Death and The Emperor, you carry the profound ability to tear down what is no longer working and build something enduring in its place. You see clearly when something has run its course, and you have the courage and discipline to act on that knowing without sentiment. Leadership comes naturally to you — not because you seek power, but because others sense your unshakeable groundedness in the face of change. You are here to build legacies, not monuments; the structures you create are meant to serve the people who come after you.',
+            },
+
+            /* 14 / 5 — Temperance + Hierophant */
+            '14_5': {
+                isTriple: false,
+                title: 'The Sacred Guide',
+                personality: {
+                    number: 14, numeral: 'XIV', name: 'Temperance',
+                    keywords: ['Balance', 'Patience', 'Alchemy'],
+                    insight: 'Temperance in your personality position is your gift for balance — for holding opposites without forcing them to reconcile too quickly. You are patient where most are reactive, and that makes you a steady presence in every room you enter.'
+                },
+                soul: {
+                    number: 5,  numeral: 'V',   name: 'The Hierophant',
+                    keywords: ['Wisdom', 'Tradition', 'Guidance'],
+                    insight: 'The Hierophant at your core is the keeper of wisdom — both the traditions you were given and the deeper truths you have earned for yourself. You teach without trying to; people listen because what you say has been lived.'
+                },
+                keywords: ['Sacred Balance', 'Teaching', 'Moderation', 'Wisdom', 'Spiritual Guidance'],
+                reading: 'Temperance and The Hierophant together make you a natural healer of divisions — someone who can hold tradition and change, the sacred and the practical, in perfect and patient balance. You carry an inherited wisdom in your bones, and you add to it your own gentle alchemy, always finding the middle path where others see only extremes. There is a deeply spiritual quality to your life\'s work, whatever form it takes, and others come to you for guidance more often than you realise. They are drawn by the calm authority of someone who has genuinely walked their own path.',
+            },
+
+            /* 15 / 6 — Devil + Lovers */
+            '15_6': {
+                isTriple: false,
+                title: 'The Heart Liberator',
+                personality: {
+                    number: 15, numeral: 'XV', name: 'The Devil',
+                    keywords: ['Liberation', 'Shadow Work', 'Authenticity'],
+                    insight: 'The Devil in your personality position is your hard-won understanding of desire — what binds people, what frees them, and how to tell the difference. You have wrestled honestly with your own shadows, and that has made you extraordinarily real in a world that mostly performs.'
+                },
+                soul: {
+                    number: 6,  numeral: 'VI', name: 'The Lovers',
+                    keywords: ['Love', 'Harmony', 'Choice'],
+                    insight: 'The Lovers at your soul is the deep yearning for harmony, partnership, and choosing love consciously rather than by default. You feel everything deeply, and that depth is one of your greatest gifts — even on the days it feels like a weight.'
+                },
+                keywords: ['Deep Love', 'Freedom', 'Passion', 'Authenticity', 'Liberation'],
+                reading: 'The Devil and The Lovers make you someone who understands the full spectrum of human desire — and the profound freedom that comes from choosing love over fear. You have wrestled with your own shadows and your wants, and that honest struggle has made you extraordinarily authentic in a world that often rewards performance over truth. Your deepest relationships are where your most important lessons live, and you are here to love with both passion and wisdom. The chains in your birth cards are not your prison — they are the ones you are here to help others gently dissolve.',
+            },
+
+            /* 16 / 7 — Tower + Chariot */
+            '16_7': {
+                isTriple: false,
+                title: 'The Fearless Disruptor',
+                personality: {
+                    number: 16, numeral: 'XVI',  name: 'The Tower',
+                    keywords: ['Awakening', 'Revelation', 'Breakthrough'],
+                    insight: 'The Tower in your personality position is your hard-earned relationship with sudden change. You have lived through upheavals that would have broken others, and they sharpened you rather than shrunk you. Now you see clearly when a structure is hollow.'
+                },
+                soul: {
+                    number: 7,  numeral: 'VII',  name: 'The Chariot',
+                    keywords: ['Willpower', 'Determination', 'Victory'],
+                    insight: 'The Chariot at your soul is your willpower — that quiet, unshakeable drive that keeps moving even when conditions are against you. You do not need permission to begin, and you do not need applause to continue.'
+                },
+                keywords: ['Breakthrough', 'Determination', 'Upheaval', 'Willpower', 'Fearlessness'],
+                reading: 'Tower and Chariot energy together makes you one of the most powerful forces of purposeful change any room can hold. You have been through upheavals that would have broken others, and you emerged not just intact but sharpened — more certain of your direction, more unwilling to accept what is false or built on hollow foundations. Your willpower is extraordinary, but it runs deepest when channelled toward something that genuinely matters. You are not here to accept the world as you found it; you are here to leave it unmistakably, courageously different.',
+            },
+
+            /* 17 / 8 — Star + Strength */
+            '17_8': {
+                isTriple: false,
+                title: 'The Beacon of Hope',
+                personality: {
+                    number: 17, numeral: 'XVII',  name: 'The Star',
+                    keywords: ['Hope', 'Renewal', 'Healing'],
+                    insight: 'The Star in your personality position is your luminous, almost irrational hope — the kind that has survived things hope should not survive. People feel lifted just being near you, even when you cannot quite explain why.'
+                },
+                soul: {
+                    number: 8,  numeral: 'VIII',  name: 'Strength',
+                    keywords: ['Courage', 'Compassion', 'Patience'],
+                    insight: 'Strength at your soul is the gentle kind — the patient courage that does not need to dominate. You meet hard things with steadiness rather than force, and that is why people trust you with their truest moments.'
+                },
+                keywords: ['Hope', 'Resilience', 'Healing', 'Inner Strength', 'Faith'],
+                reading: 'The Star and Strength together make you a healer and a lighthouse — someone whose inner resilience becomes a quiet but unmistakable source of hope for everyone around them. You have faced darkness and emerged not bitter but luminous, carrying a faith in life that feels almost irrational to those who have not experienced what you have. Your gifts are meant to be shared; when you allow yourself to shine, you give others permission to believe in their own light. Trust that the universe placed this combination in you precisely because the world needs what you uniquely and beautifully carry.',
+            },
+
+            /* 18 / 9 — Moon + Hermit */
+            '18_9': {
+                isTriple: false,
+                title: 'The Seeker of Shadows',
+                personality: {
+                    number: 18, numeral: 'XVIII', name: 'The Moon',
+                    keywords: ['Intuition', 'Mystery', 'Dreams'],
+                    insight: 'The Moon in your personality position gives you extraordinary attunement to what is hidden — dreams, emotional undercurrents, the things others cannot quite name. You sense the room before words even land.'
+                },
+                soul: {
+                    number: 9,  numeral: 'IX',    name: 'The Hermit',
+                    keywords: ['Wisdom', 'Introspection', 'Inner Light'],
+                    insight: 'The Hermit at your core is the lover of solitude — the one who finds wisdom in the unhurried hours of reflection, who needs quiet the way others need company. Your inner world is genuinely vast, and that is where your richest work happens.'
+                },
+                keywords: ['Deep Intuition', 'Mystery', 'Solitude', 'Subconscious', 'Inner Wisdom'],
+                reading: 'The Moon and The Hermit together create a soul who is more at home in the depths than on the surface — finding their greatest wisdom in solitude, shadow, and the unhurried hours of reflection. You are extraordinarily attuned to what is unseen: the unspoken emotional undercurrents, the subconscious patterns, the hidden truths that others walk right past. This sensitivity is not a burden but your most profound gift, though it does ask you to honour your need for solitude and inner space. Your life\'s work, in whatever form it takes, will always involve illuminating what others cannot — or will not — see.',
+            },
+
+            /* 19 / 10 / 1 — Sun + Wheel of Fortune + Magician (TRIPLE) */
+            '19_10_1': {
+                isTriple: true,
+                title: 'The Eternal Optimist',
+                personality: {
+                    number: 19, numeral: 'XIX', name: 'The Sun',
+                    keywords: ['Joy', 'Vitality', 'Radiance'],
+                    insight: 'The Sun in your personality position is the radiant warmth others feel before you say a word. You bring lightness into rooms that needed it; you make difficult things feel possible just by being present.'
+                },
+                middle: {
+                    number: 10, numeral: 'X',   name: 'Wheel of Fortune',
+                    keywords: ['Destiny', 'Cycles', 'Turning Points'],
+                    insight: 'The Wheel as your destiny card is rare — it means you carry an almost supernatural sense of timing. Life turns in cycles around you, and you have learned how to ride them rather than resist them.'
+                },
+                soul: {
+                    number: 1,  numeral: 'I',   name: 'The Magician',
+                    keywords: ['Manifestation', 'Willpower', 'Magic'],
+                    insight: 'The Magician at your soul is the maker\'s spark — the part of you that knows you already have everything you need to manifest what matters. You are quietly a wizard, even on the days you do not feel like one.'
+                },
+                keywords: ['Joy', 'Manifestation', 'Cycles', 'Radiance', 'Mastery', 'Rare Triple'],
+                reading: 'You carry one of the rarest birth card combinations — three cards united by joy, destiny, and masterful creation. The Sun pours radiant optimism through you; The Wheel gives you an almost supernatural sense of timing and life\'s cycles; The Magician channels all of it into extraordinary, real-world manifestation. You have a gift for finding the good in almost any situation and turning it into something beautiful — something others point to as proof that magic still exists. This triple combination appears for very few, and those few are almost always the ones that other people quietly remember for a lifetime.',
+            },
+
+            /* 20 / 2 — Judgement + High Priestess */
+            '20_2': {
+                isTriple: false,
+                title: 'The Spirit Bridge',
+                personality: {
+                    number: 20, numeral: 'XX', name: 'Judgement',
+                    keywords: ['Awakening', 'Rebirth', 'Calling'],
+                    insight: 'Judgement in your personality position is your living relationship with calling — the moments when something larger than you has whispered, and you listened. You take meaning seriously, and that distinguishes you immediately from people who skim life.'
+                },
+                soul: {
+                    number: 2,  numeral: 'II', name: 'The High Priestess',
+                    keywords: ['Intuition', 'Mystery', 'Inner Wisdom'],
+                    insight: 'The High Priestess at your soul is your direct line to inner wisdom — the deep, calm knowing that does not argue, only is. She has guided you through more than you may realise, and she will keep doing so if you keep listening.'
+                },
+                keywords: ['Spiritual Awakening', 'Intuition', 'Rebirth', 'Spirit Guides', 'Liminality'],
+                reading: 'Born under Judgement and The High Priestess, you exist in the liminal space between the visible world and the one that lies just beyond it — always sensing that there is far more than what can be seen or proven. Your life is likely threaded with moments that defy rational explanation, and your intuition is a genuine faculty rather than a feeling. You are here to trust what you receive, to speak what you sense, and to serve as a bridge between ordinary experience and something far more vast. This is not imagination — it is your birthright, and the world needs the clarity you carry.',
+            },
+
+            /* 21 / 3 — World + Empress */
+            '21_3': {
+                isTriple: false,
+                title: 'The Creative Completer',
+                personality: {
+                    number: 21, numeral: 'XXI', name: 'The World',
+                    keywords: ['Completion', 'Wholeness', 'Fulfilment'],
+                    insight: 'The World in your personality position is your gift for wholeness — for taking things all the way to their fullest expression rather than abandoning them at "good enough." Completion, in your hands, is a love language.'
+                },
+                soul: {
+                    number: 3,  numeral: 'III', name: 'The Empress',
+                    keywords: ['Abundance', 'Nurturing', 'Creation'],
+                    insight: 'The Empress at your soul is your creative, nurturing abundance — the way you tend to people, projects, and beauty as though they are all alive in the same way. They are, in your hands.'
+                },
+                keywords: ['Abundance', 'Creative Completion', 'Wholeness', 'Nurturing Gifts', 'Fulfilment'],
+                reading: 'The World and The Empress make you someone whose greatest purpose is to bring things to beautiful, abundant completion — and then offer those gifts freely and generously to others. You have an extraordinary creative capacity that does not live only in art; it lives in the way you build relationships, lead projects, nurture others, and tend to everything in your care. Wholeness is not just an aspiration for you — it is an energy you naturally radiate, and others often feel quietly healed simply by being in your presence. You are here to birth great things and to love them all the way to their fullest, most luminous flowering.',
+            },
+
+            /* 22 / 4 — Fool + Emperor */
+            '22_4': {
+                isTriple: false,
+                title: 'The Joyful Leader',
+                personality: {
+                    number: 22, numeral: '0',  name: 'The Fool',
+                    keywords: ['Beginnings', 'Freedom', 'Courage'],
+                    insight: 'The Fool in your personality position is your living wonder — the willingness to begin, to leap, to stay curious in a world that wants you cynical. You are quiet evidence that wisdom and play can coexist.'
+                },
+                soul: {
+                    number: 4,  numeral: 'IV', name: 'The Emperor',
+                    keywords: ['Authority', 'Structure', 'Discipline'],
+                    insight: 'The Emperor at your soul is your quiet architecture — the discipline and grounded leadership that gives shape to your wildest leaps. You are not reckless; you are brave and structured at once.'
+                },
+                keywords: ['Joyful Leadership', 'New Beginnings', 'Discipline', 'Wonder', 'Inspired Action'],
+                reading: 'The Fool and The Emperor make you someone who leads from both wonder and wisdom — someone who never lost the childlike openness that made you brave, even as you developed the structure and discipline of a true architect of life. You have a remarkable ability to begin things that last, to inspire others with your genuine delight in the journey, and to hold a space of both freedom and form at once. Humour is one of your most disarming and beautiful gifts; you know that the most grounded leaders do not take themselves too seriously. You are here to show the world that discipline and joy are not opposites — they were always meant to walk together.',
+            },
+
+        }, /* end birthCardPairs */
+
+    }; /* end return */
+} /* end wwTarot */
+</script>
+
+</body>
+</html>
